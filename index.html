@@ -3,310 +3,140 @@
 <head>
 <meta charset="UTF-8">
 <title>P2P Private Messenger</title>
-
 <style>
-
-body{
-font-family:Arial;
-background:#111;
-color:white;
-margin:0;
-display:flex;
-flex-direction:column;
-height:100vh;
-}
-
-header{
-padding:10px;
-background:#1b1b1b;
-display:flex;
-gap:10px;
-}
-
-button{
-padding:8px;
-background:#333;
-color:white;
-border:none;
-cursor:pointer;
-}
-
-button:hover{
-background:#444;
-}
-
-textarea{
-width:100%;
-height:80px;
-background:#222;
-color:white;
-border:none;
-padding:8px;
-}
-
-#main{
-flex:1;
-display:flex;
-}
-
-#videos{
-flex:2;
-padding:10px;
-display:flex;
-flex-direction:column;
-gap:10px;
-}
-
-video{
-width:100%;
-background:black;
-}
-
-#chat{
-flex:1;
-display:flex;
-flex-direction:column;
-border-left:1px solid #333;
-}
-
-#messages{
-flex:1;
-overflow:auto;
-padding:10px;
-}
-
-#chatInput{
-display:flex;
-padding:10px;
-gap:5px;
-}
-
-input{
-flex:1;
-padding:6px;
-}
-
+body{margin:0;font-family:Arial;background:#111;color:white;display:flex;flex-direction:column;height:100vh}
+header{padding:10px;background:#1b1b1b;display:flex;gap:10px;flex-wrap:wrap}
+button{padding:8px;background:#333;color:white;border:none;cursor:pointer}
+button:hover{background:#444}
+#main{flex:1;display:flex;overflow:hidden}
+#videos{flex:2;padding:10px;display:flex;flex-direction:column;gap:10px}
+video{width:100%;background:black}
+#chat{flex:1;display:flex;flex-direction:column;border-left:1px solid #333}
+#messages{flex:1;overflow:auto;padding:10px}
+#chatInput{display:flex;padding:10px;gap:5px}
+input{flex:1;padding:6px}
 </style>
 </head>
-
 <body>
 
 <header>
-
 <button id="createInvite">Create Invite</button>
 <button id="joinInvite">Join Invite</button>
-
 <button id="startCamera">Camera</button>
 <button id="startMic">Mic</button>
 <button id="shareScreen">Screen</button>
-
 </header>
 
 <div>
-
-<label>Invite / Offer / Answer</label>
-<textarea id="signalBox"></textarea>
-
+<textarea id="signalBox" placeholder="Invite / Answer / ICE" rows="4"></textarea>
 </div>
 
 <div id="main">
-
 <div id="videos">
-
 <video id="localVideo" autoplay muted playsinline></video>
 <video id="remoteVideo" autoplay playsinline></video>
-
 </div>
-
 <div id="chat">
-
 <div id="messages"></div>
-
 <div id="chatInput">
-
 <input id="msgBox">
 <button id="sendBtn">Send</button>
-
 </div>
-
 </div>
-
 </div>
 
 <script>
-
-let pc
-let dataChannel
-let localStream
-
-const signalBox=document.getElementById("signalBox")
-
-const localVideo=document.getElementById("localVideo")
-const remoteVideo=document.getElementById("remoteVideo")
-
-const messages=document.getElementById("messages")
-
-const config={
-iceServers:[
-{urls:"stun:stun.l.google.com:19302"}
-]
-}
+let pc=null;
+let dataChannel=null;
+let localStream=null;
+const localVideo=document.getElementById("localVideo");
+const remoteVideo=document.getElementById("remoteVideo");
+const messages=document.getElementById("messages");
+const signalBox=document.getElementById("signalBox");
 
 function log(msg,type){
-
-const div=document.createElement("div")
-div.textContent=msg
-div.style.color=type==="self"?"#4ea1ff":"#5fff7a"
-messages.appendChild(div)
-messages.scrollTop=messages.scrollHeight
-
+const div=document.createElement("div");
+div.textContent=msg;
+div.style.color=type==="self"?"#4ea1ff":"#5fff7a";
+messages.appendChild(div);
+messages.scrollTop=messages.scrollHeight;
 }
 
-function encode(obj){
-return btoa(JSON.stringify(obj))
-}
+function encode(obj){return btoa(JSON.stringify(obj))}
+function decode(str){return JSON.parse(atob(str))}
 
-function decode(str){
-return JSON.parse(atob(str))
-}
-
-function createPeer(){
-
-pc=new RTCPeerConnection(config)
+async function createPeer(isOffer){
+pc=new RTCPeerConnection({iceServers:[{urls:"stun:stun.l.google.com:19302"}]});
 
 pc.onicecandidate=e=>{
-if(e.candidate){
-const data={
-candidate:e.candidate
-}
-signalBox.value=encode(data)
-}
-}
+if(e.candidate){signalBox.value=encode({candidate:e.candidate})}
+};
 
-pc.ontrack=e=>{
-remoteVideo.srcObject=e.streams[0]
-}
+pc.ontrack=e=>{remoteVideo.srcObject=e.streams[0]};
 
 pc.ondatachannel=e=>{
-dataChannel=e.channel
-setupData()
+dataChannel=e.channel;
+setupData();
+};
+
+if(isOffer){
+dataChannel=pc.createDataChannel("chat");
+setupData();
 }
 
-if(localStream){
-localStream.getTracks().forEach(t=>{
-pc.addTrack(t,localStream)
-})
-}
+if(localStream)localStream.getTracks().forEach(t=>pc.addTrack(t,localStream));
 
+if(isOffer){
+const offer=await pc.createOffer();
+await pc.setLocalDescription(offer);
+signalBox.value=encode(offer);
+}else{
+const offerData=decode(signalBox.value);
+await pc.setRemoteDescription(offerData);
+const answer=await pc.createAnswer();
+await pc.setLocalDescription(answer);
+signalBox.value=encode(answer);
+}
 }
 
 function setupData(){
-
-dataChannel.onmessage=e=>{
-log(e.data,"peer")
+dataChannel.onmessage=e=>{log(e.data,"peer")}
 }
 
-}
-
-document.getElementById("createInvite").onclick=async()=>{
-
-createPeer()
-
-dataChannel=pc.createDataChannel("chat")
-
-setupData()
-
-const offer=await pc.createOffer()
-
-await pc.setLocalDescription(offer)
-
-signalBox.value=encode(offer)
-
-}
-
-document.getElementById("joinInvite").onclick=async()=>{
-
-const data=decode(signalBox.value)
-
-createPeer()
-
-await pc.setRemoteDescription(data)
-
-const answer=await pc.createAnswer()
-
-await pc.setLocalDescription(answer)
-
-signalBox.value=encode(answer)
-
-}
+document.getElementById("createInvite").onclick=()=>{createPeer(true)};
+document.getElementById("joinInvite").onclick=()=>{createPeer(false)};
 
 signalBox.addEventListener("change",async()=>{
-
-const data=decode(signalBox.value)
-
-if(data.type==="answer"){
-
-await pc.setRemoteDescription(data)
-
-}
-
-if(data.candidate){
-
-await pc.addIceCandidate(data.candidate)
-
-}
-
-})
+if(!pc)return;
+const data=decode(signalBox.value);
+if(data.type==="answer" || data.type==="offer")await pc.setRemoteDescription(data);
+if(data.candidate)await pc.addIceCandidate(data.candidate);
+});
 
 document.getElementById("startCamera").onclick=async()=>{
-
-localStream=await navigator.mediaDevices.getUserMedia({
-video:true
-})
-
-localVideo.srcObject=localStream
-
-}
+localStream=await navigator.mediaDevices.getUserMedia({video:true});
+localVideo.srcObject=localStream;
+};
 
 document.getElementById("startMic").onclick=async()=>{
-
-const mic=await navigator.mediaDevices.getUserMedia({
-audio:true
-})
-
-if(!localStream)localStream=new MediaStream()
-
-mic.getAudioTracks().forEach(t=>localStream.addTrack(t))
-
-localVideo.srcObject=localStream
-
-}
+const mic=await navigator.mediaDevices.getUserMedia({audio:true});
+if(!localStream)localStream=new MediaStream();
+mic.getAudioTracks().forEach(t=>localStream.addTrack(t));
+localVideo.srcObject=localStream;
+};
 
 document.getElementById("shareScreen").onclick=async()=>{
-
-localStream=await navigator.mediaDevices.getDisplayMedia({
-video:true,
-audio:true
-})
-
-localVideo.srcObject=localStream
-
-}
+localStream=await navigator.mediaDevices.getDisplayMedia({video:true,audio:true});
+localVideo.srcObject=localStream;
+};
 
 document.getElementById("sendBtn").onclick=()=>{
-
-const msg=document.getElementById("msgBox").value
-
-if(!msg)return
-
-dataChannel.send(msg)
-
-log(msg,"self")
-
-document.getElementById("msgBox").value=""
-
-}
-
+const msg=document.getElementById("msgBox").value;
+if(!msg)return;
+if(dataChannel && dataChannel.readyState==="open")dataChannel.send(msg);
+log(msg,"self");
+document.getElementById("msgBox").value="";
+};
 </script>
 
 </body>
