@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <title>Приватный P2P Мессенджер (WebRTC)</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background: #111; color: #0f0; }
+        video { border: 2px solid #0f0; margin: 10px; }
+        textarea, input { width: 80%; margin: 10px; padding: 10px; font-size: 16px; }
+        button { padding: 15px; margin: 10px; font-size: 18px; background: #0f0; color: #111; border: none; cursor: pointer; }
+        pre { background: #222; padding: 15px; max-height: 300px; overflow: auto; text-align: left; margin: 20px auto; width: 80%; }
+    </style>
+</head>
+<body>
+    <h1>🔒 Приватный P2P Мессенджер (без серверов)</h1>
+    <p id="stat">Статус: готов к соединению</p>
+    
+    <div>
+        <video id="localVideo" autoplay muted playsinline width="400" height="300"></video>
+        <video id="remoteVideo" autoplay playsinline width="400" height="300"></video>
+    </div>
+    
+    <button onclick="startCamera()">📹 Поделиться камерой + микрофоном (звонок)</button>
+    <button onclick="shareScreen()">🖥️ Поделиться экраном + звуком (стример-мод)</button>
+    
+    <br><br>
+    <button id="button" onclick="createOffer()">Создать предложение (Offer) — нажми первым</button>
+    
+    <br>
+    <textarea id="offer" rows="6" placeholder="ВСТАВЬ сюда предложение друга и нажми Enter&#10;ИЛИ скопируй отсюда и отправь другу"></textarea>
+    <br>
+    <textarea id="answer" rows="6" placeholder="Здесь появится твой ответ&#10;ИЛИ вставь ответ друга и нажми Enter"></textarea>
+    
+    <br><br>
+    <strong>Чат:</strong><br>
+    <input id="chat" placeholder="Напиши сообщение и нажми Enter" style="width:600px">
+    <pre id="output">Чат появится здесь...</pre>
+
+<script>
+    const output = document.getElementById('output');
+    const stat = document.getElementById('stat');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    
+    const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+    const pc = new RTCPeerConnection(config);
+    const dc = pc.createDataChannel("chat", { negotiated: true, id: 0 });
+    
+    let localStream = null;
+    
+    const log = msg => { output.innerHTML += `<br>${msg}`; output.scrollTop = output.scrollHeight; };
+    
+    dc.onopen = () => log('✅ Соединение установлено! Чат работает.');
+    dc.onmessage = e => log(`> ${e.data}`);
+    
+    pc.oniceconnectionstatechange = () => {
+        stat.innerHTML = `Статус: ${pc.iceConnectionState} | ${pc.connectionState}`;
+    };
+    pc.ontrack = event => {
+        remoteVideo.srcObject = event.streams[0];
+        log('📹 Видео/экран получен');
+    };
+    
+    // === Медиа ===
+    async function startCamera() {
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({video: true, audio: true});
+            localVideo.srcObject = localStream;
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            log('📹 Камера + микрофон добавлены');
+        } catch(e) { log('❌ Ошибка камеры: ' + e.message); }
+    }
+    
+    async function shareScreen() {
+        try {
+            localStream = await navigator.mediaDevices.getDisplayMedia({video: true, audio: true});
+            localVideo.srcObject = localStream;
+            localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+            log('🖥️ Экран + системный звук добавлены (стример-мод)');
+        } catch(e) { log('❌ Ошибка экрана: ' + e.message); }
+    }
+    
+    // === Сигнализация (ручная) ===
+    async function createOffer() {
+        document.getElementById('button').disabled = true;
+        await pc.setLocalDescription(await pc.createOffer());
+        pc.onicecandidate = ({candidate}) => {
+            if (candidate) return;
+            const offerArea = document.getElementById('offer');
+            offerArea.value = pc.localDescription.sdp;
+            offerArea.select();
+            log('📋 Предложение готово — скопируй и отправь другу');
+        };
+    }
+    
+    const offerArea = document.getElementById('offer');
+    offerArea.onkeypress = async function(e) {
+        if (e.keyCode !== 13 || pc.signalingState !== "stable") return;
+        offerArea.disabled = true;
+        await pc.setRemoteDescription({type: "offer", sdp: offerArea.value});
+        await pc.setLocalDescription(await pc.createAnswer());
+        pc.onicecandidate = ({candidate}) => {
+            if (candidate) return;
+            const answerArea = document.getElementById('answer');
+            answerArea.value = pc.localDescription.sdp;
+            answerArea.select();
+            log('📋 Ответ готов — скопируй и отправь обратно');
+        };
+    };
+    
+    const answerArea = document.getElementById('answer');
+    answerArea.onkeypress = function(e) {
+        if (e.keyCode !== 13 || pc.signalingState !== "have-local-offer") return;
+        answerArea.disabled = true;
+        pc.setRemoteDescription({type: "answer", sdp: answerArea.value});
+        log('🔗 Соединение завершается...');
+    };
+    
+    // Чат
+    const chatInput = document.getElementById('chat');
+    chatInput.onkeypress = function(e) {
+        if (e.keyCode !== 13) return;
+        if (dc.readyState === "open") {
+            dc.send(chatInput.value);
+            log(`Вы: ${chatInput.value}`);
+        }
+        chatInput.value = "";
+    };
+    
+    log('🚀 Готово! Сначала выбери камеру или экран, потом создай предложение.');
+</script>
+</body>
+</html>
